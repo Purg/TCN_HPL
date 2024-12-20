@@ -61,7 +61,7 @@ data:
   coco_test_poses: "${paths.coco_file_root}/TEST-pose_estimations.coco.json"
 
   batch_size: 512
-  num_workers: 16
+  num_workers: 12
   target_framerate: 15  # BBN Hololens2 Framerate
   epoch_sample_factor: 1  # 1x the dataset size iterations for train/val
 

@@ -24,7 +24,7 @@ defaults:
 # simply provide checkpoint path to resume training
 #ckpt_path: null
 
-tags: ["m2", "ms_tcn", "debug"]
+tags: ["m4", "ms_tcn", "debug"]
 
 seed: 12345
 
@@ -34,7 +34,7 @@ trainer:
   log_every_n_steps: 1
 
 model:
-  num_classes: 9  # number of activity classification classes
+  num_classes: 4  # number of activity classification classes
   compile: false
   optimizer:
     lr: 0.00005
@@ -45,7 +45,7 @@ model:
   net:
     # Length of feature vector for a single frame.
     # Currently derived from the parameterization of dataset vectorizer.
-    dim: 102
+    dim: 87
 
 data:
   coco_train_activities: "${paths.coco_file_root}/TRAIN-activity_truth.coco.json"
@@ -71,7 +71,7 @@ data:
     vectorize:
       _target_: tcn_hpl.data.vectorize.locs_and_confs.LocsAndConfs
       top_k: 1
-      num_classes: 7
+      num_classes: 4
       use_joint_confs: True
       use_pixel_norm: True
       use_joint_obj_offsets: False

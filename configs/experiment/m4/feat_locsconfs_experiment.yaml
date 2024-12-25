@@ -1,0 +1,138 @@
+# @package _global_
+
+defaults:
+  - override /data: ptg
+  - override /model: ptg
+  - override /callbacks: default
+  - override /trainer: gpu
+  - override /paths: default
+  #- override /logger: aim
+  - override /logger: csv
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+# Change this name to something descriptive and unique for this experiment.
+# This will differentiate the run logs and output to be separate from other
+# experiments that may have been run under the configured
+# Setting this value influences:
+# - the name of the directory under `${paths.root_dir}/logs/` in which training
+#   run files are stored.
+# Default is "train" set in the "configs/train.yaml" file.
+#task_name:
+
+# simply provide checkpoint path to resume training
+#ckpt_path: null
+
+tags: ["m4", "ms_tcn", "debug"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 50
+  max_epochs: 500
+  log_every_n_steps: 1
+
+model:
+  num_classes: 4  # number of activity classification classes
+  compile: false
+  optimizer:
+    lr: 0.001
+  scheduler:
+    # Code change to track train/loss instead of val/loss.
+    factor: 0.8
+    patience: 10
+  net:
+    _target_: tcn_hpl.models.components.ms_tcs_net.MultiStageModel2
+    fc_sequence_dims: [256, 256]  # one less due to peak, no need to grow exponentially?
+    fc_sequence_dropout_p: 0.2
+    do_stage_residual: True  # updated value
+    do_stage_softmax: True  # default value
+    # Length of feature vector for a single frame.
+    # Currently derived from the parameterization of dataset vectorizer.
+    dim: 87
+
+data:
+  coco_train_activities: "${paths.coco_file_root}/TRAIN-activity_truth.coco.json"
+  coco_train_objects: "${paths.coco_file_root}/TRAIN-object_detections.coco.json"
+  coco_train_poses: "${paths.coco_file_root}/TRAIN-pose_estimations.coco.json"
+
+  coco_validation_activities: "${paths.coco_file_root}/VALIDATION-activity_truth.coco.json"
+  coco_validation_objects: "${paths.coco_file_root}/VALIDATION-object_detections.coco.json"
+  coco_validation_poses: "${paths.coco_file_root}/VALIDATION-pose_estimations.coco.json"
+
+  coco_test_activities: "${paths.coco_file_root}/TEST-activity_truth.coco.json"
+  coco_test_objects: "${paths.coco_file_root}/TEST-object_detections.coco.json"
+  coco_test_poses: "${paths.coco_file_root}/TEST-pose_estimations.coco.json"
+
+  batch_size: 512
+  num_workers: 12
+  target_framerate: 15  # BBN Hololens2 Framerate
+  epoch_sample_factor: 1  # 1x the dataset size iterations for train/val
+
+  train_dataset:
+    window_size: 25
+    window_label_idx: ${model.pred_frame_index}
+    vectorize:
+      _target_: tcn_hpl.data.vectorize.locs_and_confs.LocsAndConfs
+      top_k: 1
+      num_classes: 4
+      use_joint_confs: True
+      use_pixel_norm: True
+      use_joint_obj_offsets: False
+      background_idx: 0
+    # Augmentations on windows of frame data before performing vectorization.
+    transform_frame_data:
+      transforms:
+        - _target_: tcn_hpl.data.frame_data_aug.window_frame_dropout.DropoutFrameDataTransform
+          # These parameters are a fudge for now to experiment. Window presence
+          # looks qualitatively right with what we're seeing live.
+          frame_rate: ${data.target_framerate}
+          dets_throughput_mean: 14.5
+          pose_throughput_mean: 10
+          dets_latency: 0
+          pose_latency: 0.1
+          dets_throughput_std: 0.2
+          pose_throughput_std: 0.2
+          fixed_pattern: false
+        - _target_: tcn_hpl.data.frame_data_aug.rotate_scale_translate_jitter.FrameDataRotateScaleTranslateJitter
+          translate: 0.05
+          scale: [0.9, 1.1]
+          rotate: [-5, 5]
+          det_loc_jitter: 0.02
+          det_wh_jitter: 0.02
+          pose_kp_loc_jitter: 0.005
+          dets_score_jitter: 0.
+          pose_score_jitter: 0.
+          pose_kp_score_jitter: 0.
+  val_dataset:
+    # Augmentations on windows of frame data before performing vectorization.
+    # Sharing transform with training dataset as it is only the drop-out aug to
+    # simulate stream processing dropout the same.
+    transform_frame_data:
+      transforms:
+        - _target_: tcn_hpl.data.frame_data_aug.window_frame_dropout.DropoutFrameDataTransform
+          # Mirror training hparams, except used fixed patterns.
+          frame_rate: ${data.target_framerate}
+          dets_throughput_mean: 14.5
+          pose_throughput_mean: 10
+          dets_latency: 0
+          pose_latency: 0.1
+          dets_throughput_std: 0.2
+          pose_throughput_std: 0.2
+          fixed_pattern: true
+  # Test dataset usually configured the same as val, unless there is some
+  # different set of transforms that should be used during test/prediction.
+
+paths:
+  # Base directory for training outputs.
+  root_dir: "/home/local/KHQ/cameron.johnson/code/TCN_HPL/tcn_hpl/train-TCN-M2_bbn_hololens/training_root"
+
+  # Convenience variable to where your train/val/test split COCO file datasets
+  # are stored.
+  coco_file_root: ${paths.root_dir}
+
+#logger:
+#  aim:
+#    experiment: ${task_name}
+#    capture_terminal_logs: true

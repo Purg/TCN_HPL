@@ -190,20 +190,26 @@ class LinearSkipBlock(nn.Module):
         :param dropout_p: P-value for the drop-out layers utilized.
         """
         super().__init__()
+        if not len(dims):
+            raise ValueError("One or more input dimensions required in the sequence.")
         self.encode = nn.ModuleList([
             nn.Sequential(nn.Linear(dims[i], dims[i+1]), nn.GELU(), nn.Dropout(dropout_p))
             for i in range(len(dims) - 1)
         ])
+        self.peak = nn.Sequential(nn.Linear(dims[-1], dims[-1]), nn.GELU(), nn.Dropout(dropout_p))
         self.decode = nn.ModuleList([
             nn.Sequential(nn.Linear(dims[i], dims[i-1]), nn.GELU(), nn.Dropout(dropout_p))
             for i in range(len(dims) - 1, 0, -1)
         ])
+        assert len(self.encode) == len(self.decode)
 
     def forward(self, x):
         acts = []
         for layer in self.encode:
             acts.append(x)
             x = layer(x)
+        x = self.peak(x) + x
+        assert len(acts) == len(self.decode)
         for layer, a in zip(self.decode, acts[::-1]):
             x = layer(x) + a
         return x

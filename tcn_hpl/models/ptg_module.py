@@ -133,6 +133,7 @@ class PTGLitModule(LightningModule):
 
         # for tracking best so far validation accuracy
         self.val_f1_best = MaxMetric()
+        self.val_f1_best_epoch = MaxMetric()
 
     def forward(self, x: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
@@ -349,8 +350,13 @@ class PTGLitModule(LightningModule):
         # log `val_f1_best` as a value through `.compute()` return, instead of
         # as a metric object otherwise metric would be reset by lightning after
         # each epoch.
+        # Also record the epoch from which the best F1 is from to the progress
+        # bar, helping the reader know how far away from patience we are.
+        if self.val_metrics.f1.compute() > self.val_f1_best.compute():
+            self.val_f1_best_epoch(self.current_epoch)
         self.val_f1_best(self.val_metrics.f1.compute())
         self.log("val/f1_best", self.val_f1_best.compute(), prog_bar=True, on_epoch=True)
+        self.log("val/f1_best_epoch", self.val_f1_best_epoch.compute(), prog_bar=True, on_epoch=True)
 
     def on_test_epoch_start(self) -> None:
         # Reset relevant metric collections

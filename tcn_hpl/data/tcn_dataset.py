@@ -391,8 +391,10 @@ class TCNDataset(Dataset):
         # Some classes may not be represented in the truth, so initialize the
         # weights vector separately, and then assign weight values based on
         # which class IDs were actually represented.
+        import scipy.stats  # importing here because weird segfault at train time
+        gmean = scipy.stats.gmean(cls_counts)
         cls_weights = np.zeros(len(activity_coco.cats))
-        cls_weights[cls_ids] = 1.0 / cls_counts
+        cls_weights[cls_ids] = gmean / cls_counts
         # TODO: Warning or something if any class weight is still zero/nan/inf?
         #       I.e. that the class has zero representation in this dataset.
         self._window_weights = cls_weights[window_final_class_ids]
@@ -566,6 +568,7 @@ def test_dataset_for_input(
         pose_coco,
         target_framerate=target_framerate,
     )
+    test_access_weights = dataset.window_weights
 
     logger.info("+" * 60)
     window_vecs = dataset[0]

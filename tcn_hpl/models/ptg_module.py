@@ -157,33 +157,33 @@ class PTGLitModule(LightningModule):
 
         :return: The loss
         """
-
+        # p shape: (batch_size, num_classes, window_size)
         probs = torch.softmax(p, dim=1)  # shape (batch size, self.hparams.num_classes)
         preds = torch.argmax(probs, dim=1).float()  # shape: batch size
 
         loss = torch.zeros((1)).to(p[0])
 
-        # TODO: Use only last frame per window
-
+        # Compute loss every frame in every batch.
+        # The criterion is expected to softmax along the last dimension.
         loss += self.criterion(
             p.transpose(2, 1).contiguous().view(-1, self.hparams.num_classes),
             y.view(-1),
         )
 
-        # loss += self.criterion(
-        #     p[:,:,-1],
-        #     y[:,-1],
-        # )
-
-        # need to penalize high volatility of predictions within a window
-        mode, _ = torch.mode(y, dim=-1)
-        mode = einops.repeat(mode, "b -> b c", c=preds.shape[-1])
-
-        variation_coef = torch.abs(preds - mode)
-        variation_coef = torch.sum(variation_coef, dim=-1)
-        gt_variation_coef = torch.zeros_like(variation_coef)
+        ## Only compute the criterion loss for the configured index of the
+        ## window.
+        #loss += self.criterion(
+        #    p[:, :, self.hparams.pred_frame_index],
+        #    y[:, self.hparams.pred_frame_index],
+        #)
 
         if self.hparams.use_smoothing_loss:
+            # need to penalize high volatility of predictions within a window
+            mode, _ = torch.mode(y, dim=-1)
+            mode = einops.repeat(mode, "b -> b c", c=preds.shape[-1])
+            variation_coef = torch.abs(preds - mode)
+            variation_coef = torch.sum(variation_coef, dim=-1)
+            gt_variation_coef = torch.zeros_like(variation_coef)
             loss += self.hparams.smoothing_loss * torch.mean(
                 self.mse(
                     variation_coef,
@@ -191,17 +191,25 @@ class PTGLitModule(LightningModule):
                 ),
             )
 
-        loss += self.hparams.smoothing_loss * torch.mean(
-            torch.clamp(
-                self.mse(
-                    F.log_softmax(p[:, :, 1:], dim=1),
-                    F.log_softmax(p.detach()[:, :, :-1], dim=1),
-                ),
-                min=0,
-                max=16,
-            )
-            * mask[:, None, 1:]
-        )
+        # Looks like this might be assuming the "reduction" model of the
+        # configured criterion.
+        # It looks like this is punishing consecutive predictions that are
+        # different. A zero loss situation with this term would be when every
+        # frame in the window is predicted to have the same class
+        # probabilities. This doesn't seem relevant in the context of PTG where
+        # some activities may be shorter than the window length, or the window
+        # may cover the transition from one activity to another.
+        #loss += self.hparams.smoothing_loss * torch.mean(
+        #    torch.clamp(
+        #        self.mse(
+        #            F.log_softmax(p[:, :, 1:], dim=1),
+        #            F.log_softmax(p.detach()[:, :, :-1], dim=1),
+        #        ),
+        #        min=0,
+        #        max=16,
+        #    )
+        #    * mask[:, None, 1:]
+        #)
 
         return loss
 
@@ -235,8 +243,13 @@ class PTGLitModule(LightningModule):
         )  # shape (4, batch size, num_classes, window))
         loss = torch.zeros((1)).to(x)
         if compute_loss:
-            for p in logits:
-                loss += self.compute_loss(p, y, m)
+            # Why compute loss for *every* stage when the prediction is only
+            # pulled from the final stage? To do this may require or be
+            # improved by adding residual connections between the stages.
+            # ASSUMES RESIDUAL IN STAGES
+            loss += self.compute_loss(logits[-1], y, m)
+            #for p in logits:
+            #    loss += self.compute_loss(p, y, m)
 
         pred_frame_index = self.hparams.pred_frame_index
         probs = torch.softmax(
